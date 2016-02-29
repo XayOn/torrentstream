@@ -23,6 +23,7 @@ async def play_file(*args):
         player is adquired from the PLAYER environment variable
     """
     file = args[1]
+    LOG.info(file.__dict__)
     await asyncio.sleep(5)
     player = os.getenv('PLAYER')
     process = await asyncio.create_subprocess_exec(player, file.path)
@@ -43,7 +44,7 @@ async def server_stream(loop, file):
     app = web.Application()
     app.router.add_static("/streams/", pathlib.Path('.').absolute())
     file_url = "http://localhost:8080/streams/{}".format(file.path)
-    await asyncio.gather(play_file(file=file_url),
+    await asyncio.gather(play_file(loop, file_url),
                          loop.create_server(app.make_handler(),
                                             '0.0.0.0', 8080))
 
@@ -53,12 +54,29 @@ def first_file(files):
     return files[0]
 
 
+async def alert_watcher(torrent):
+    while True:
+        alert = torrent.session.pop_alert()
+        if alert:
+            LOG.info(alert)
+        await asyncio.sleep(1)
+
+
 async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
                           **kwargs):
     torrent = Torrent(magnet_link, kwargs, (6881, 6891))
+    loop.create_task(alert_watcher(torrent))
 
-    with asyncio.timeout(5 * 60):
-        while not torrent.started:
+    if torrent.finished:
+        #: Parallel launch stream function and wait for completion from now on
+        #: We'll forget the torrent itself and relie
+        #: In case we already got it
+        await asyncio.gather(wait_for_completion(torrent),
+                            stream_func(loop, playable_tfile))
+        return
+
+    with asyncio.timeout(10 * 60):
+        while not torrent.started and not torrent.finished:
             await asyncio.sleep(5)
 
     #: Secuential download.
@@ -67,6 +85,7 @@ async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
     #: Filter function must make sure to be precise...
     #: It gets a list of torrent.file
     playable_tfile = torrent.download_only(filter_func(torrent.files))
+    LOG.info("Found playable file: %s", playable_tfile)
 
     if not playable_tfile:
         raise Exception("Could not find a playable source that matches"
@@ -75,7 +94,6 @@ async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
     try:
         with asyncio.timeout(5 * 60):
             while True:
-                LOG.debug("Got: %s", playable_tfile.completed_percent)
                 if playable_tfile.completed_percent >= 5:
                     break
                 await asyncio.sleep(5)

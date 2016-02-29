@@ -32,6 +32,9 @@ class TorrentFile:
         self.size = self.hfile.size
         self.priority = self.file_priority
 
+    def path(self):
+        return self.hfile.path
+
     @property
     def file(self):
         """ Return a file object with this file's path open in rb mode """
@@ -69,11 +72,23 @@ class Torrent:
         params_ = {
             'save_path': '.',
             'auto_managed': True,
+            'paused': False,
+            'port': 6881,
+            'ratio': 0,
+            'max_download_rate': -1,
+            'max_upload_rate': -1,
             'storage_mode': lt.storage_mode_t.storage_mode_sparse
         }
+        #: I know it's not nice to add trackers like this...
+        magnet_link += "&tr=udp://tracker.openbittorrent.com:80"
         params_.update(params)
         self.session = lt.session()
+        self.session.set_severity_level(lt.alert.severity_levels.critical)
         self.session.listen_on(*ports)
+        self.session.start_lsd()
+        self.session.start_upnp()
+        self.session.start_natpmp()
+        self.session.start_dht()
         self.handle = lt.add_magnet_uri(self.session, magnet_link, params_)
 
     @property
