@@ -2,11 +2,63 @@
 """
     Simple wrapper over libtorrent
 """
+import logging
+import asyncio
+from collections import namedtuple
 import libtorrent as lt
 
+logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
 STATUSES = ['queued', 'checking', 'downloading metadata',
             'downloading', 'finished', 'seeding', 'allocating',
             'checking fastresume']
+
+
+def get_indexed(func):
+    """ Black magic """
+    def inner(*args, **kwargs):
+        """ Dragons """
+        return func(*args, **kwargs)()[args[0].index]
+    return inner
+
+
+class TorrentFile:
+    """ Wrapper over libtorrent.file """
+    def __init__(self, handle, index):
+        self.index = index
+        self.handle = handle
+        self.path = self.hfile.path
+        self.filehash = self.hfile.filehash.to_bytes
+        self.size = self.hfile.size
+        self.priority = self.file_priority
+
+    @property
+    def file(self):
+        """ Return a file object with this file's path open in rb mode """
+        return open(self.path, 'rb')
+
+    @property
+    @get_indexed
+    def hfile(self):
+        """ Return file from libtorrent """
+        return self.handle.get_torrent_info().files
+
+    @property
+    @get_indexed
+    def file_priority(self):
+        """ Readonly file priority from libtorrent """
+        return self.handle.file_priorities
+
+    @property
+    @get_indexed
+    def file_progress(self):
+        """ Returns file progress """
+        return self.handle.file_progress
+
+    @property
+    def completed_percent(self):
+        """ Returns this file completed percentage """
+        return (self.file_progress / self.size) * 100
 
 
 class Torrent:
@@ -16,7 +68,7 @@ class Torrent:
     def __init__(self, magnet_link, params, ports):
         params_ = {
             'save_path': '.',
-            'auto_managed': False,
+            'auto_managed': True,
             'storage_mode': lt.storage_mode_t.storage_mode_sparse
         }
         params_.update(params)
@@ -45,7 +97,7 @@ class Torrent:
         """ Torrent name """
         if not self.handle.has_metadata():
             return "N/A"
-        return self.handle.get_torrent_info().name()
+        return self.torrent_info.name()
 
     @property
     def status(self):
@@ -87,30 +139,38 @@ class Torrent:
         return self.handle.has_metadata()
 
     @property
+    def torrent_info(self):
+        """ Return handle.torrent_info """
+        return self.handle.get_torrent_info()
+
+    @property
     def files(self):
-        """ TODO
-            {
-                'file': filelike,
-                'name': name,
-                'completed_percent': completed,
-                'chunks': chunks
-             }
-        """
+        """ Returns a TorrentFile object for each file """
         if not self._files:
-            priorities = self.handle.file_priorities()
-            files = self.handle.files()
-            self._files = files
-            print(priorities, files)
+            files_ = range(len(self.torrent_info.files()))
+            self._files = [TorrentFile(self.handle, index) for index in files_]
         return self._files
 
     def update_priorities(self):
         """
             Update file priorities with self.files'
         """
-        self.handle.prioritize_files([a['priority'] for a in self.files])
+        self.handle.prioritize_files([a.priority for a in self.files])
 
     def download_only(self, file):
         """ Filter out priorities for every file except this one"""
-        for file in self.files:
-            file['priority'] = 0
-        self.files[file]['priority'] = 7  #: Max priority
+        result = False
+        for file_ in self.files:
+            file_.priority = 0
+            if file == file_:
+                LOG.debug("File found: %s", file_.path)
+                file_.priority = 7
+                result = file_
+        self.update_priorities()
+        return result
+
+
+async def wait_for_completion(torrent):
+    """ Wait for a torrent to finish (coroutine)"""
+    while not torrent.finished:
+        await asyncio.sleep(5)
