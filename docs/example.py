@@ -49,7 +49,7 @@ CHAPTER = Chapter(title=sys.argv[1], season=int(sys.argv[2]),
 CHAPTER.subtitle
 
 if len(sys.argv) > 4:
-    CHAPTER.magnet = sys.argv[4]
+    CHAPTER.magnet = {'link': sys.argv[4]}
 
 stream_torrent(CHAPTER.magnet['link'], stream_func=play_file,
                filter_func=filter_files(CHAPTER))
