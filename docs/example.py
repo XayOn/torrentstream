@@ -2,11 +2,12 @@
     Example use of torrentstream and pychapter combined
 """
 from contextlib import suppress
-import mimetypes
 import asyncio
-import sys
 import os
-from torrentstream import stream_torrent, LOG
+import aiohttp
+from aiohttp import web
+from torrentstream import _stream_torrent
+import pathlib
 from pychapter import Chapter
 
 
@@ -16,40 +17,57 @@ async def play_file(*args):
         player is adquired from the PLAYER environment variable
     """
     file = args[1]
-    LOG.info(file.__dict__)
-    await asyncio.sleep(5)
-    player = os.getenv('PLAYER')
+    player = os.getenv('PLAYER', 'mplayer')
     process = await asyncio.create_subprocess_exec(player, file.path)
-    await process.wait()
+    return await process.wait()
 
 
-def filter_files(chapter):
-    """ Filter files for a chapter"""
-    def filter_(files):
-        """
-            Gets a list of files and returns the first one matching
-            the chapter
-        """
-        reserved_ = ['sample']
-        for file in files:
-            if any([res in file.path.lower() for res in reserved_]):
-                continue
-            if Chapter(filename=file.path) == chapter:
-                if 'video' in mimetypes.guess_type(file.path)[0]:
-                    with suppress(OSError):
-                        os.makedirs(os.path.dirname(file.path))
-                    spath = '.'.join(file.path.split('.')[:-1])
-                    with open("{}.srt".format(spath), 'wb') as subs:
-                        subs.write(chapter.subtitle.file)
-                    return file
-    return filter_
+class PyChapterAPI(web.View):
+    """ Main API """
 
-CHAPTER = Chapter(title=sys.argv[1], season=int(sys.argv[2]),
-                  episode=int(sys.argv[3]))
-CHAPTER.subtitle
+    @property
+    def get_chapter(self):
+        """ Get chapter from match_info"""
+        with suppress(KeyError):
+            magnet = self.request.match_info['magnet']
 
-if len(sys.argv) > 4:
-    CHAPTER.magnet = sys.argv[4]
+        if not magnet:
+            title = self.request.match_info['series']
+            season = self.request.match_info['season']
+            episode = self.request.match_info['chapter']
+            chapter = Chapter(title=title, episode=episode, season=season)
+        else:
+            chapter = Chapter(magnet=magnet)
 
-stream_torrent(CHAPTER.magnet['link'], stream_func=play_file,
-               filter_func=filter_files(CHAPTER))
+        if chapter.filename in self.app:
+            raise aiohttp.web.HTTPFound(self.app[chapter.filename]['url'])
+
+    async def get(self):
+        """ Get a chapter stream. Will redirect once chapter is ready """
+        chapter = self.chapter
+        file, awaitable = chapter.file.get()
+
+        file_url = "http://localhost:8080/streams/{}".format(file.path)
+
+        self.app[chapter.filename] = {
+            'cancelable': app.loop.call_soon(asyncio.async, main_torrent),
+            'url': file_url
+        }
+        raise aiohttp.web.HTTPFound(file_url)
+
+    async def delete(self):
+        """ Cancels the torrent download """
+        chapter = self.chapter
+        if chapter.filename in self.app:
+            self.app[chapter.filename]['cancelable'].cancel()
+            return web.Response(text="OK")
+
+        raise aiohttp.web.HTTPNotFound()
+
+
+def server():
+    app = web.Application()
+    app.router.add_route('*', '/get/{series}/{season}/{chapter}', PyChapterAPI)
+    app.router.add_route('*', '/get/{magnet}', PyChapterAPI)
+    app.router.add_static("/streams/", pathlib.Path('.').absolute())
+    web.run_app(app)

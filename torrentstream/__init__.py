@@ -55,6 +55,7 @@ def first_file(files):
 
 
 async def alert_watcher(torrent):
+    """ Watch and log torrent alerts from LT """
     while True:
         alert = torrent.session.pop_alert()
         if alert:
@@ -71,11 +72,10 @@ async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
         #: Parallel launch stream function and wait for completion from now on
         #: We'll forget the torrent itself and relie
         #: In case we already got it
-        await asyncio.gather(wait_for_completion(torrent),
-                            stream_func(loop, playable_tfile))
-        return
+        return [wait_for_completion(torrent),
+                stream_func(loop, filter_func(torrent.files))]
 
-    with asyncio.timeout(10 * 60):
+    with asyncio.timeout(10 * 60):  #: TODO Make this timeout configurable
         while not torrent.started and not torrent.finished:
             await asyncio.sleep(5)
 
@@ -102,14 +102,20 @@ async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
 
     #: Parallel launch stream function and wait for completion from now on
     #: We'll forget the torrent itself and relie
-    await asyncio.gather(wait_for_completion(torrent),
-                         stream_func(loop, playable_tfile))
+    return [wait_for_completion(torrent),
+            stream_func(loop, playable_tfile)]
+
+
+async def p_stream_torrent(*args, **kwargs):
+    """ Parallel await _stream_torrent results """
+    return await asyncio.gather(_stream_torrent(*args, **kwargs))
+
 
 def stream_torrent(magnet_link, stream_func, filter_func, **kwargs):
     """ Stream torrent"""
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(_stream_torrent(loop, magnet_link,
-                                            stream_func, filter_func,
-                                            **kwargs))
+    loop.run_until_complete(p_stream_torrent(loop, magnet_link,
+                                             stream_func, filter_func,
+                                             **kwargs))
     loop.run_forever()
     loop.close()
