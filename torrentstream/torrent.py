@@ -89,6 +89,9 @@ class Torrent:
         self.session.start_upnp()
         self.session.start_natpmp()
         self.session.start_dht()
+        self.session.add_dht_router("router.bittorrent.com", 6881)
+        self.session.add_dht_router("router.utorrent.com", 6881)
+        self.session.add_dht_router("router.bitcomet.com", 6881)
         self.handle = lt.add_magnet_uri(self.session, magnet_link, params_)
 
     @property

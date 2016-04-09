@@ -63,9 +63,7 @@ async def alert_watcher(torrent):
         await asyncio.sleep(1)
 
 
-async def _stream_torrent(loop, magnet_link, stream_func, filter_func,
-                          **kwargs):
-    torrent = Torrent(magnet_link, kwargs, (6881, 6891))
+async def _stream_torrent(loop, torrent, stream_func, filter_func):
     loop.create_task(alert_watcher(torrent))
 
     if torrent.finished:
@@ -113,9 +111,9 @@ async def p_stream_torrent(*args, **kwargs):
 
 def stream_torrent(magnet_link, stream_func, filter_func, **kwargs):
     """ Stream torrent"""
+    torrent = Torrent(magnet_link, kwargs, (6881, 6891))
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(p_stream_torrent(loop, magnet_link,
-                                             stream_func, filter_func,
-                                             **kwargs))
+    loop.run_until_complete(p_stream_torrent(loop, torrent, stream_func,
+                                             filter_func))
     loop.run_forever()
     loop.close()
