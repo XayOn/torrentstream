@@ -82,7 +82,7 @@ async def _stream_torrent(loop, torrent, stream_func, filter_func):
 
     #: Filter function must make sure to be precise...
     #: It gets a list of torrent.file
-    playable_tfile = torrent.download_only(filter_func(torrent.files))
+    playable_tfile = torrent.download_only(await filter_func(torrent.files))
     LOG.info("Found playable file: %s", playable_tfile)
 
     if not playable_tfile:
