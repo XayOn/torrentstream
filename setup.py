@@ -24,7 +24,7 @@ test_requirements = [
 
 setup(
     name='torrentstream',
-    version='0.1.0',
+    version='0.1.1',
     description="Python3.5 simple BitTorrent streaming library based on libtorrent",
     long_description=readme + '\n\n' + history,
     author="David Francos Cuartero",
