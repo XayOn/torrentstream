@@ -94,6 +94,10 @@ class Torrent:
         self.session.add_dht_router("router.bitcomet.com", 6881)
         self.handle = lt.add_magnet_uri(self.session, magnet_link, params_)
 
+    def sequential(self, value):
+        """ Set sequential download """
+        self.handle.set_sequential_download(value)
+
     @property
     def queue(self):
         """ Download queue """
