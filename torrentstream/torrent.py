@@ -79,19 +79,52 @@ class Torrent:
             'max_upload_rate': -1,
             'storage_mode': lt.storage_mode_t.storage_mode_sparse
         }
+        trackers = [
+            "http://9.rarbg.com:2710/announce",
+            "http://explodie.org:6969/announce",
+            "http://mgtracker.org:2710/announce",
+            "http://tracker.tfile.me/announce",
+            "http://tracker.torrenty.org:6969/announce",
+            "http://tracker.trackerfix.com/announce",
+            "http://www.mvgroup.org:2710/announce",
+            "udp://9.rarbg.com:2710/announce",
+            "udp://9.rarbg.me:2710/announce",
+            "udp://9.rarbg.to:2710/announce",
+            "udp://coppersurfer.tk:6969/announce",
+            "udp://exodus.desync.com:6969/announce",
+            "udp://glotorrents.pw:6969/announce",
+            "udp://open.demonii.com:1337/announce",
+            "udp://tracker.coppersurfer.tk:6969/announce",
+            "udp://tracker.glotorrents.com:6969/announce",
+            "udp://tracker.leechers-paradise.org:6969/announce",
+            "udp://tracker.openbittorrent.com:80/announce",
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://tracker.publicbt.com:80/announce",
+            "udp://tracker4.piratux.com:6969/announce"
+        ]
+
         #: I know it's not nice to add trackers like this...
-        magnet_link += "&tr=udp://tracker.openbittorrent.com:80"
+        magnet_link += '&tr='.join(trackers)
         params_.update(params)
         self.session = lt.session()
         self.session.set_severity_level(lt.alert.severity_levels.critical)
         self.session.listen_on(*ports)
+        self.session.add_extension('ut_pex')
+        self.session.add_extension('ut_metadata')
+        self.session.add_extension('smart_ban')
+        self.session.add_extension('metadata_transfer')
+
+        self.session.start_dht()
         self.session.start_lsd()
         self.session.start_upnp()
         self.session.start_natpmp()
-        self.session.start_dht()
-        self.session.add_dht_router("router.bittorrent.com", 6881)
+
         self.session.add_dht_router("router.utorrent.com", 6881)
+        self.session.add_dht_router("router.bittorrent.com", 6881)
+        self.session.add_dht_router("dht.transmissionbt.com", 6881)
         self.session.add_dht_router("router.bitcomet.com", 6881)
+        self.session.add_dht_router("dht.aelitis.com", 6881)
+
         self.handle = lt.add_magnet_uri(self.session, magnet_link, params_)
 
     def sequential(self, value):
