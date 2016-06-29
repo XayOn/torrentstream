@@ -4,10 +4,7 @@
 """
 import logging
 import asyncio
-from aiohttp import web
-import os
-import pathlib
-from . torrent import Torrent, wait_for_completion
+from . torrent import wait_for_completion
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
@@ -73,4 +70,4 @@ async def stream_torrent(loop, torrent, stream_func, filter_func):
             await asyncio.sleep(5)
 
     return await asyncio.gather([wait_for_completion(torrent),
-            stream_func(loop, playable_tfile)]
+                                 stream_func(loop, playable_tfile)])
