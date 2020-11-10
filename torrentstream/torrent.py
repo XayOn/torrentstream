@@ -1,74 +1,113 @@
-#!/usr/bin/env python3.5
-"""
-    Simple wrapper over libtorrent
-"""
-import logging
+"""Simple wrapper over libtorrent"""
+import os
 import asyncio
+import logging
+import mimetypes
 from collections import namedtuple
+from functools import cached_property
+from random import randint
+
 import libtorrent as lt
 
+mimetypes.init()
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
-STATUSES = ['queued', 'checking', 'downloading metadata',
-            'downloading', 'finished', 'seeding', 'allocating',
-            'checking fastresume']
+STATUSES = [
+    'queued', 'checking', 'downloading_metadata', 'downloading', 'finished',
+    'seeding', 'allocating', 'checking_fastresume'
+]
 
 
+
+TRACKERS = (
+    "http://9.rarbg.com:2710/announce", "http://explodie.org:6969/announce",
+    "http://mgtracker.org:2710/announce", "http://tracker.tfile.me/announce",
+    "http://tracker.torrenty.org:6969/announce",
+    "http://tracker.trackerfix.com/announce",
+    "http://www.mvgroup.org:2710/announce", "udp://9.rarbg.com:2710/announce",
+    "udp://9.rarbg.me:2710/announce", "udp://9.rarbg.to:2710/announce",
+    "udp://coppersurfer.tk:6969/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://glotorrents.pw:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+    "udp://tracker.coppersurfer.tk:6969/announce",
+    "udp://tracker.glotorrents.com:6969/announce",
+    "udp://tracker.leechers-paradise.org:6969/announce",
+    "udp://tracker.openbittorrent.com:80/announce",
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://tracker.publicbt.com:80/announce",
+    "udp://tracker4.piratux.com:6969/announce")
+
+DHT = (("router.utorrent.com", 6881), ("router.bittorrent.com", 6881),
+       ("dht.transmissionbt.com", 6881), ("router.bitcomet.com",
+                                          6881), ("dht.aelitis.com", 6881))
+EXTENSIONS = ('ut_pex', 'ut_metadata', 'smart_ban', 'metadata_transfoer')
+
+PORTS = (randint(1024, 2000), randint(1024, 2000))
+
+
+class Alerts:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if all(a.finished for a in self.session) and not self.closed:
+            raise StopIteration()
+        yield self.session.session.pop_alert()
 def get_indexed(func):
-    """ Black magic """
+    """Return currently indedex torrent"""
     def inner(*args, **kwargs):
-        """ Dragons """
-        return func(*args, **kwargs)()[args[0].index]
+        """Executes a method, and returns result[class_instance.index]"""
+        return list(func(*args, **kwargs)())[args[0].index]
+
     return inner
 
 
-class TorrentFile:
-    """ Wrapper over libtorrent.file """
-    def __init__(self, handle, index):
-        self.index = index
-        self.handle = handle
-        self.path = self.hfile.path
-        self.filehash = self.hfile.filehash.to_bytes
-        self.size = self.hfile.size
-        self.priority = self.file_priority
 
-    def path(self):
-        return self.hfile.path
 
-    @property
-    def file(self):
-        """ Return a file object with this file's path open in rb mode """
-        return open(self.path, 'rb')
+class TorrentSession:
+    """Represent a torrent session. May handle multiple torrents"""
+    def __init__(self, ports=PORTS, extensions=EXTENSIONS, dht_routers=DHT):
+        self.session = lt.session()
+        self.session.set_severity_level(lt.alert.severity_levels.critical)
+        self.session.listen_on(*ports)
+        for extension in extensions:
+            self.session.add_extension(extension)
+        self.session.start_dht()
+        self.session.start_lsd()
+        self.session.start_upnp()
+        self.session.start_natpmp()
+        for router in dht_routers:
+            self.session.add_dht_router(*router)
+        self.torrents = []
+        self.alerts = Alerts(self)
 
-    @property
-    @get_indexed
-    def hfile(self):
-        """ Return file from libtorrent """
-        return self.handle.get_torrent_info().files
+    def add_torrent(self, **kwargs):
+        """Add a torrent to this session
 
-    @property
-    @get_indexed
-    def file_priority(self):
-        """ Readonly file priority from libtorrent """
-        return self.handle.file_priorities
+        For accepted parameters reference, see over `Torrent` definition.
+        """
+        torrent = Torrent(session=self, **kwargs)
+        self.torrents.append(torrent)
+        return torrent
 
-    @property
-    @get_indexed
-    def file_progress(self):
-        """ Returns file progress """
-        return self.handle.file_progress
-
-    @property
-    def completed_percent(self):
-        """ Returns this file completed percentage """
-        return (self.file_progress / self.size) * 100
+    def __iter__(self):
+        """Iterating trough a session will give you all the currently-downloading torrents"""
+        return iter(self.torrents)
 
 
 class Torrent:
-    """ Wrapper over libtorrent """
-    _files = []
-
-    def __init__(self, magnet_link, params, ports):
+    """Wrapper over libtorrent"""
+    def __init__(self,
+                 magnet_link: str,
+                 session: TorrentSession,
+                 params: dict = {},
+                 trackers: tuple = TRACKERS):
+        """Set default parameters to a magnet link, and add ourselves to a session"""
+        self.session = session
         params_ = {
             'save_path': '.',
             'auto_managed': True,
@@ -79,56 +118,19 @@ class Torrent:
             'max_upload_rate': -1,
             'storage_mode': lt.storage_mode_t.storage_mode_sparse
         }
-        trackers = [
-            "http://9.rarbg.com:2710/announce",
-            "http://explodie.org:6969/announce",
-            "http://mgtracker.org:2710/announce",
-            "http://tracker.tfile.me/announce",
-            "http://tracker.torrenty.org:6969/announce",
-            "http://tracker.trackerfix.com/announce",
-            "http://www.mvgroup.org:2710/announce",
-            "udp://9.rarbg.com:2710/announce",
-            "udp://9.rarbg.me:2710/announce",
-            "udp://9.rarbg.to:2710/announce",
-            "udp://coppersurfer.tk:6969/announce",
-            "udp://exodus.desync.com:6969/announce",
-            "udp://glotorrents.pw:6969/announce",
-            "udp://open.demonii.com:1337/announce",
-            "udp://tracker.coppersurfer.tk:6969/announce",
-            "udp://tracker.glotorrents.com:6969/announce",
-            "udp://tracker.leechers-paradise.org:6969/announce",
-            "udp://tracker.openbittorrent.com:80/announce",
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://tracker.publicbt.com:80/announce",
-            "udp://tracker4.piratux.com:6969/announce"
-        ]
-
-        #: I know it's not nice to add trackers like this...
-        magnet_link += '&tr='.join(trackers)
         params_.update(params)
-        self.session = lt.session()
-        self.session.set_severity_level(lt.alert.severity_levels.critical)
-        self.session.listen_on(*ports)
-        self.session.add_extension('ut_pex')
-        self.session.add_extension('ut_metadata')
-        self.session.add_extension('smart_ban')
-        self.session.add_extension('metadata_transfer')
 
-        self.session.start_dht()
-        self.session.start_lsd()
-        self.session.start_upnp()
-        self.session.start_natpmp()
+        #: Force trackers into magnet link. Not the best coding practice.
+        magnet_link += '&tr='.join(trackers)
 
-        self.session.add_dht_router("router.utorrent.com", 6881)
-        self.session.add_dht_router("router.bittorrent.com", 6881)
-        self.session.add_dht_router("dht.transmissionbt.com", 6881)
-        self.session.add_dht_router("router.bitcomet.com", 6881)
-        self.session.add_dht_router("dht.aelitis.com", 6881)
+        # This is a torrent object, thus we only handle, for each LT session, a
+        # single torrent, unless a common session has been passed down of
+        # course :-)
+        self.handle = lt.add_magnet_uri(self.session.session, magnet_link,
+                                        params_)
 
-        self.handle = lt.add_magnet_uri(self.session, magnet_link, params_)
-
-    def sequential(self, value):
-        """ Set sequential download """
+    def sequential(self, value: bool):
+        """Set sequential download"""
         self.handle.set_sequential_download(value)
 
     @property
@@ -142,8 +144,10 @@ class Torrent:
 
         def repr_piece(piece):
             """ Represents a piece """
-            return {piece['piece_index']: [state_char[block['state']] for
-                                           block in piece['blocks']]}
+            return {
+                piece['piece_index']:
+                [state_char[block['state']] for block in piece['blocks']]
+            }
 
         return [repr_piece(piece) for piece in self.queue]
 
@@ -181,11 +185,7 @@ class Torrent:
 
     @property
     def finished(self):
-        """
-            Checks if torrent is finished
-            I was previously checking status against ""seeding"" state,
-            but this one is able to discern if prioriticed files are in order
-        """
+        """Checks if torrent is finished."""
         return self.handle.is_finished()
 
     @property
@@ -195,37 +195,114 @@ class Torrent:
 
     @property
     def torrent_info(self):
-        """ Return handle.torrent_info """
+        """Return handle.torrent_info"""
         return self.handle.get_torrent_info()
 
-    @property
+    @cached_property
     def files(self):
-        """ Returns a TorrentFile object for each file """
-        if not self._files:
-            files_ = range(len(self.torrent_info.files()))
-            self._files = [TorrentFile(self.handle, index) for index in files_]
-        return self._files
+        """Returns a `TorrentFile` object for each file"""
+        fnum = range(len(self.torrent_info.files()))
+        return [TorrentFile(self, i) for i in fnum]
 
     def update_priorities(self):
-        """
-            Update file priorities with self.files'
-        """
+        """Update file priorities with self.files."""
         self.handle.prioritize_files([a.priority for a in self.files])
 
     def download_only(self, file):
         """ Filter out priorities for every file except this one"""
-        result = False
+        if file not in self.files:
+            return None
         for file_ in self.files:
-            file_.priority = 0
-            if file == file_:
-                LOG.debug("File found: %s", file_.path)
-                file_.priority = 7
-                result = file_
-        self.update_priorities()
-        return result
+            file.priority = 7 if file == file_ else 0
+        return file
+
+    async def wait_for(self, status):
+        """Wait for a specific status
+
+        Example:
+            >>> # This will wait for a torrent to start, and return the torrent
+            >>> torrent = await Torrent("magnet:...").wait_for('started')
+
+            >>> # This will wait for a torrent to finish, and return the torrent
+            >>> torrent = await Torrent("magnet:...").wait_for('finished')
+        """
+        while not getattr(self, status):
+            print(getattr(self, status))
+            await asyncio.sleep(1)
+        return self
+
+    def __iter__(self):
+        """Iterating trough a Torrent instance will return each TorrentFile"""
+        return iter(self.files)
 
 
-async def wait_for_completion(torrent):
-    """ Wait for a torrent to finish (coroutine)"""
-    while not torrent.finished:
-        await asyncio.sleep(5)
+class TorrentFile:
+    """ Wrapper over libtorrent.file """
+    def __init__(self, parent: Torrent, index: int):
+        self.index = index
+        self.handle = parent.handle
+
+    async def wait_for_completion(self, percent):
+        while self.completed_percent < percent:
+            print(self.completed_percent)
+            await asyncio.sleep(5)
+
+    async def launch(self):
+        """Launch file with PLAYER envvar or xdg-open"""
+        process = await asyncio.create_subprocess_exec(
+            os.getenv('PLAYER', 'xdg-open'), file.path)
+        await process.wait()
+
+    @cached_property
+    def mime_type(self):
+        """Return file mimetype"""
+        return mimetypes.guess_type(self.path)[0] or ''
+
+    @cached_property
+    def is_media(self):
+        """Return true if file is a media type"""
+        return any(self.mime_type.startswith(f) for f in ('audio', 'video', 'image'))
+
+    @cached_property
+    def path(self):
+        """Return torrent path on filesystem"""
+        return self.hfile.path
+
+    @cached_property
+    def file(self):
+        """Return a file object with this file's path open in rb mode """
+        return open(self.path, 'rb')
+
+    @property
+    def filehash(self):
+        """File hash"""
+        return self.hfile.filehash
+
+    @property
+    def size(self):
+        """File size"""
+        return self.hfile.size
+
+    @property
+    @get_indexed
+    def hfile(self):
+        """ Return file from libtorrent """
+        return self.handle.get_torrent_info().files
+
+    # TODO: Priority.setter, that will call parent.update_priorities()
+    @property
+    @get_indexed
+    def priority(self):
+        """ Readonly file priority from libtorrent """
+        return self.handle.file_priorities
+
+    @property
+    @get_indexed
+    def file_progress(self):
+        """ Returns file progress """
+        return self.handle.file_progress
+
+    @property
+    def completed_percent(self):
+        """ Returns this file completed percentage """
+        return (self.file_progress / self.size) * 100
