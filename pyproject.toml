@@ -8,6 +8,7 @@ license = "Apache-2.0"
 [tool.poetry.dependencies]
 python = "^3.8"
 async_timeout = "^3.0.1"
+rich = "^9.2.0"
 
 [tool.poetry.dev-dependencies]
 

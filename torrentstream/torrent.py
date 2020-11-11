@@ -1,4 +1,6 @@
 """Simple wrapper over libtorrent"""
+from urllib.parse import quote
+import tempfile
 import os
 import asyncio
 import logging
@@ -17,36 +19,20 @@ STATUSES = [
     'seeding', 'allocating', 'checking_fastresume'
 ]
 
-
-
-TRACKERS = (
-    "http://9.rarbg.com:2710/announce", "http://explodie.org:6969/announce",
-    "http://mgtracker.org:2710/announce", "http://tracker.tfile.me/announce",
-    "http://tracker.torrenty.org:6969/announce",
-    "http://tracker.trackerfix.com/announce",
-    "http://www.mvgroup.org:2710/announce", "udp://9.rarbg.com:2710/announce",
-    "udp://9.rarbg.me:2710/announce", "udp://9.rarbg.to:2710/announce",
-    "udp://coppersurfer.tk:6969/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://glotorrents.pw:6969/announce",
-    "udp://open.demonii.com:1337/announce",
-    "udp://tracker.coppersurfer.tk:6969/announce",
-    "udp://tracker.glotorrents.com:6969/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://tracker.openbittorrent.com:80/announce",
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://tracker.publicbt.com:80/announce",
-    "udp://tracker4.piratux.com:6969/announce")
+TRACKERS = ("udp://tracker.openbittorrent.com:80/announce",
+            "udp://tracker.publicbt.com:80/announce")
 
 DHT = (("router.utorrent.com", 6881), ("router.bittorrent.com", 6881),
        ("dht.transmissionbt.com", 6881), ("router.bitcomet.com",
                                           6881), ("dht.aelitis.com", 6881))
+
 EXTENSIONS = ('ut_pex', 'ut_metadata', 'smart_ban', 'metadata_transfoer')
 
 PORTS = (randint(1024, 2000), randint(1024, 2000))
 
 
 class Alerts:
+    """Torrent session asynchronous alert iterator"""
     def __init__(self, session):
         self.session = session
 
@@ -57,6 +43,8 @@ class Alerts:
         if all(a.finished for a in self.session) and not self.closed:
             raise StopIteration()
         yield self.session.session.pop_alert()
+
+
 def get_indexed(func):
     """Return currently indedex torrent"""
     def inner(*args, **kwargs):
@@ -64,8 +52,6 @@ def get_indexed(func):
         return list(func(*args, **kwargs)())[args[0].index]
 
     return inner
-
-
 
 
 class TorrentSession:
@@ -104,30 +90,61 @@ class Torrent:
     def __init__(self,
                  magnet_link: str,
                  session: TorrentSession,
-                 params: dict = {},
-                 trackers: tuple = TRACKERS):
-        """Set default parameters to a magnet link, and add ourselves to a session"""
+                 trackers: tuple = TRACKERS,
+                 remove_after: bool = False,
+                 **params):
+        """Set default parameters to a magnet link, and add ourselves to a session
+
+
+        Arguments:
+
+            magnet_link: Magnet link. Currently torrent files are not supported
+            session: TorrentSession instance
+            trackers: Tracker list to add to magnet link. Defaults to TRACKERS
+                      constant
+            remove_after: Delete download dir upon __exit__. Only if params.save_path has not been specified
+            save_path: Path to save the torrent into. A temporary directory
+                       will be created if not specified
+            auto_managed: Set auto managed flag
+            paused: Start torrent as paused
+            port: Torrent listen port (6881 by default)
+            ratio: Seed ratio, disabled by default
+            max_download_rate: Max download speed, disabled by default
+            max_upload_rate: Max upload speed, disabled by default
+            storage_mode: Property of lt.storage_mode_t
+        """
         self.session = session
-        params_ = {
-            'save_path': '.',
+        self.temp_dir = None
+        self.remove_after = remove_after
+        self.params = {
+            'save_path': None,
             'auto_managed': True,
             'paused': False,
             'port': 6881,
             'ratio': 0,
             'max_download_rate': -1,
             'max_upload_rate': -1,
-            'storage_mode': lt.storage_mode_t.storage_mode_sparse
+            'storage_mode': lt.storage_mode_t.storage_mode_sparse,
+            **params
         }
-        params_.update(params)
 
         #: Force trackers into magnet link. Not the best coding practice.
-        magnet_link += '&tr='.join(trackers)
+        trackers = (quote(t, safe='') for t in trackers)
+        self.magnet_link = f'{magnet_link}&tr={"&tr=".join(trackers)}'
+        self.handle = None
 
-        # This is a torrent object, thus we only handle, for each LT session, a
-        # single torrent, unless a common session has been passed down of
-        # course :-)
-        self.handle = lt.add_magnet_uri(self.session.session, magnet_link,
-                                        params_)
+    def __enter__(self):
+        if not self.params.get('save_path'):
+            self.temp_dir = tempfile.TemporaryDirectory()
+            self.params['save_path'] = self.temp_dir.name
+        self.handle = lt.add_magnet_uri(self.session.session, self.magnet_link,
+                                        self.params)
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        if self.temp_dir and self.remove_after:
+            self.temp_dir.cleanup()
+        self.session.remove_torrent(self.handle)
 
     def sequential(self, value: bool):
         """Set sequential download"""
@@ -227,9 +244,7 @@ class Torrent:
             >>> torrent = await Torrent("magnet:...").wait_for('finished')
         """
         while not getattr(self, status):
-            print(getattr(self, status))
             await asyncio.sleep(1)
-        return self
 
     def __iter__(self):
         """Iterating trough a Torrent instance will return each TorrentFile"""
@@ -239,18 +254,21 @@ class Torrent:
 class TorrentFile:
     """ Wrapper over libtorrent.file """
     def __init__(self, parent: Torrent, index: int):
+        self.root = parent.params.get('save_path')
         self.index = index
         self.handle = parent.handle
 
     async def wait_for_completion(self, percent):
         while self.completed_percent < percent:
-            print(self.completed_percent)
             await asyncio.sleep(5)
 
     async def launch(self):
         """Launch file with PLAYER envvar or xdg-open"""
         process = await asyncio.create_subprocess_exec(
-            os.getenv('PLAYER', 'xdg-open'), file.path)
+            os.getenv('PLAYER', 'xdg-open'),
+            f'{self.root}/{self.path}',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
         await process.wait()
 
     @cached_property
@@ -261,7 +279,8 @@ class TorrentFile:
     @cached_property
     def is_media(self):
         """Return true if file is a media type"""
-        return any(self.mime_type.startswith(f) for f in ('audio', 'video', 'image'))
+        return any(
+            self.mime_type.startswith(f) for f in ('audio', 'video', 'image'))
 
     @cached_property
     def path(self):
@@ -289,12 +308,16 @@ class TorrentFile:
         """ Return file from libtorrent """
         return self.handle.get_torrent_info().files
 
-    # TODO: Priority.setter, that will call parent.update_priorities()
     @property
     @get_indexed
     def priority(self):
         """ Readonly file priority from libtorrent """
         return self.handle.file_priorities
+
+    @priority.setter
+    def priority(self, value):
+        self._priority = value
+        self.parent.update_priorities()
 
     @property
     @get_indexed
