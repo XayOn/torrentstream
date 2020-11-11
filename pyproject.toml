@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "torrentstream"
-version = "0.1.0"
+version = "0.2.0"
 description = "Quick n' dirty torrent streaming with libtorrent and python"
 authors = ["David Francos <opensource@davidfrancos.net>"]
 license = "Apache-2.0"
