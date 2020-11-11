@@ -9,7 +9,7 @@ set by Kenneth Reitz (https://github.com/not-kennethreitz).
 TorrentStream is centered around the principle of `streaming` a torrent
 (sequential download, buffering and playing).
 
-|pypi| |release| |downloads| |python_versions| |pypi_versions| |coverage| |actions|
+|pypi| |release| |downloads| |python_versions| |pypi_versions|
 
 .. |pypi| image:: https://img.shields.io/pypi/l/torrentstream
 .. |release| image:: https://img.shields.io/librariesio/release/pypi/torrentstream
