@@ -12,6 +12,7 @@ rich = "^9.2.0"
 
 [tool.poetry.dev-dependencies]
 sphinx = "^3.3.0"
+yapf = "^0.30.0"
 
 [tool.poetry.scripts]
 torrentstream = "torrentstream:main"

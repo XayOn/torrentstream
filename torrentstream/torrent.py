@@ -31,20 +31,6 @@ EXTENSIONS = ('ut_pex', 'ut_metadata', 'smart_ban', 'metadata_transfoer')
 PORTS = (randint(1024, 2000), randint(1024, 2000))
 
 
-class Alerts:
-    """Torrent session asynchronous alert iterator"""
-    def __init__(self, session):
-        self.session = session
-
-    async def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if all(a.finished for a in self.session) and not self.closed:
-            raise StopIteration()
-        yield self.session.session.pop_alert()
-
-
 def get_indexed(func):
     """Return currently indedex torrent"""
     def inner(*args, **kwargs):
@@ -69,7 +55,17 @@ class TorrentSession:
         for router in dht_routers:
             self.session.add_dht_router(*router)
         self.torrents = []
-        self.alerts = Alerts(self)
+
+    @property
+    async def alerts(self):
+        if all(a.finished for a in self):
+            raise StopIteration()
+        for alert in self.session.pop_alerts():
+            yield alert
+
+    def remove_torrent(self, *args, **kwargs):
+        """Remove torrent from session."""
+        self.session.remove_torrent(*args, **kwargs)
 
     def add_torrent(self, **kwargs):
         """Add a torrent to this session
@@ -105,12 +101,6 @@ class Torrent:
             remove_after: Delete download dir upon __exit__. Only if params.save_path has not been specified
             save_path: Path to save the torrent into. A temporary directory
                        will be created if not specified
-            auto_managed: Set auto managed flag
-            paused: Start torrent as paused
-            port: Torrent listen port (6881 by default)
-            ratio: Seed ratio, disabled by default
-            max_download_rate: Max download speed, disabled by default
-            max_upload_rate: Max upload speed, disabled by default
             storage_mode: Property of lt.storage_mode_t
         """
         self.session = session
@@ -118,12 +108,6 @@ class Torrent:
         self.remove_after = remove_after
         self.params = {
             'save_path': None,
-            'auto_managed': True,
-            'paused': False,
-            'port': 6881,
-            'ratio': 0,
-            'max_download_rate': -1,
-            'max_upload_rate': -1,
             'storage_mode': lt.storage_mode_t.storage_mode_sparse,
             **params
         }
@@ -257,6 +241,7 @@ class TorrentFile:
         self.root = parent.params.get('save_path')
         self.index = index
         self.handle = parent.handle
+        self.torrent = parent
 
     async def wait_for_completion(self, percent):
         while self.completed_percent < percent:

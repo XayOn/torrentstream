@@ -1,4 +1,4 @@
-"""Torrentstream"""
+"""Torrentstream CLI interface"""
 from contextlib import suppress
 from async_timeout import timeout
 import sys
@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def update_progress(progress, task_id, file):
+    """Update progress object."""
     while not progress.finished:
         await asyncio.sleep(1)
         with suppress(Exception):
@@ -28,12 +29,19 @@ async def update_progress(progress, task_id, file):
                                      progress._tasks[task_id].completed))
 
 
+async def show_alerts(session, console):
+    async for alert in session.alerts:
+        console.print(alert)
+        await asyncio.sleep(1)
+
+
 async def stream_torrent(hash_torrent):
     # Create a session, and add a torrent
     session = TorrentSession()
 
     # By default this will cleanup torrent contents after playing
-    with session.add_torrent(magnet_link=hash_torrent, remove_after=True) as torrent:
+    with session.add_torrent(magnet_link=hash_torrent,
+                             remove_after=True) as torrent:
         with Progress() as progress:
             # Force sequential mode
             torrent.sequential(True)
@@ -55,6 +63,7 @@ async def stream_torrent(hash_torrent):
 
             task_id = progress.add_task(media.path, start=True, total=100)
 
+            asyncio.ensure_future(show_alerts(session, progress.console))
             asyncio.ensure_future(update_progress(progress, task_id, media))
 
             with timeout(5 * 60):  # Abort if we can't fill 5% in 5 minutes
