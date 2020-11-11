@@ -139,6 +139,7 @@ class Torrent:
         """ Download queue """
         return self.handle.get_download_queue()
 
+    @property
     def queue_status(self):
         """ Returns a represented queue status """
         state_char = [' ', '-', '=', '#']
