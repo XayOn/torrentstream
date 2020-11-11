@@ -16,10 +16,6 @@ TorrentStream is centered around the principle of `streaming` a torrent
 .. |downloads| image:: https://img.shields.io/pypi/dm/torrentstream
 .. |python_versions| image:: https://img.shields.io/pypi/pyversions/torrentstream
 .. |pypi_versions| image:: https://img.shields.io/pypi/v/torrentstream
-.. |coverage| image:: https://codecov.io/gh/XayOn/torrentstream/branch/develop/graph/badge.svg
-    :target: https://codecov.io/gh/XayOn/torrentstream
-.. |actions| image:: https://github.com/XayOn/torrentstream/workflows/CI%20commit/badge.svg
-    :target: https://github.com/XayOn/torrentstream/actions
 
 TorrentStream exposes a CLI command, intended as an example usage.
 
@@ -29,7 +25,7 @@ TorrentStream exposes a CLI command, intended as an example usage.
 Torrent objects are context managers that can clean up torrent content after
 you finish using them.
 
-`add_torrent` method of a TorrentSession returns a Torrent object, thus can be
+*add_torrent* method of a TorrentSession returns a Torrent object, thus can be
 used directly as a context manager.
 
 .. code:: python
