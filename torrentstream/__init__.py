@@ -23,6 +23,7 @@ async def update_progress(progress, task_id, file):
     """Update progress object."""
     while not progress.finished:
         await asyncio.sleep(1)
+        print(file.torrent.queue_status)
         with suppress(Exception):
             progress.update(task_id,
                             advance=(file.completed_percent -
