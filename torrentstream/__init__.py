@@ -23,7 +23,6 @@ async def update_progress(progress, task_id, file):
     """Update progress object."""
     while not progress.finished:
         await asyncio.sleep(1)
-        print(file.torrent.queue_status)
         with suppress(Exception):
             progress.update(task_id,
                             advance=(file.completed_percent -
@@ -47,6 +46,8 @@ async def stream_torrent(hash_torrent):
             # Force sequential mode
             torrent.sequential(True)
 
+            asyncio.ensure_future(show_alerts(session, progress.console))
+
             progress.console.print("Waiting for torrent metadata")
             # Wait for torrent to be started
             await torrent.wait_for('started')
@@ -64,7 +65,6 @@ async def stream_torrent(hash_torrent):
 
             task_id = progress.add_task(media.path, start=True, total=100)
 
-            asyncio.ensure_future(show_alerts(session, progress.console))
             asyncio.ensure_future(update_progress(progress, task_id, media))
 
             with timeout(5 * 60):  # Abort if we can't fill 5% in 5 minutes
